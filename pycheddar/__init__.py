@@ -284,10 +284,8 @@ class CheddarObject(object):
         clean = False.
         
         This method should be considered opaque."""
-        
         self._id = xml.get('id')
         self._code = xml.get('code')
-        
         # denote relationships where there will only
         # be one child object, rather than an arbitrary set
         singles = (
@@ -297,9 +295,10 @@ class CheddarObject(object):
         )
         
         for child in xml.getchildren():
+            key = to_underscores(child.tag)
             # is this an element with children? if so, it's an object
             # relationship, not just an attribute
-            if len(child.getchildren()) > 0:
+            if len(child.getchildren()):
                 # is this a single-esque relationship, as opposed to one
                 # where the object should contain a list?
                 if (xml.tag, child.tag) in singles:
@@ -307,7 +306,7 @@ class CheddarObject(object):
                     class_name = single_xml.tag.capitalize()
                     
                     if hasattr(sys.modules[__name__], class_name):
-                        klass = getattr(sys.modules[__name__], single_xml.tag.capitalize())
+                        klass = getattr(sys.modules[__name__], class_name)
                         setattr(self, single_xml.tag, klass.from_xml(single_xml, parent = self))
                         
                         # denote a clean version as well
@@ -317,7 +316,8 @@ class CheddarObject(object):
                     
                 # okay, it's not a single relationship -- follow my normal
                 # process for a many to many
-                setattr(self, child.tag, [])
+                setattr(self, key, [])
+                
                 for indiv_xml in child.getchildren():
                     # get the class that this item is
                     try:
@@ -325,28 +325,35 @@ class CheddarObject(object):
                     
                         # the XML underneath here constitutes the necessary
                         # XML to generate that object; call its XML function
-                        getattr(self, child.tag).append(klass.from_xml(indiv_xml, parent = self))
+                        getattr(self, key).append(klass.from_xml(indiv_xml, parent = self))
                     except AttributeError:
                         break
                         
                     # set the clean version
-                    setattr(self, '_clean_' + child.tag, getattr(self, child.tag))
-                        
+                    setattr(self, '_clean_' + key, getattr(self, key))
+                
                 # done; move to the next child
                 continue
             
             # get the element value -- if it's numeric, convert it
             value = child.text
+            
             if value is not None:
                 if re.match(r'^[\d]+$', value):
                     value = int(value)
                 elif re.match(r'^[\d.]+$', value):
                     value = float(value)
+            elif (xml.tag, child.tag) in singles:
+                class_name = child.tag.capitalize()
+                
+                if hasattr(sys.modules[__name__], class_name):
+                    klass = getattr(sys.modules[__name__], class_name)
+                    setattr(self, key, klass(parent = self))
                 
             # set the data dictionaries in my object to
             # these values
-            key = to_underscores(child.tag)
             self._data[key] = value
+            
             if clean is True:
                 self._clean_data[key] = value
         
@@ -459,6 +466,9 @@ class Customer(CheddarObject):
         self.subscription = Subscription(parent = self)
         super(Customer, self).__init__(**kwargs)
         
+        if not hasattr(self, 'meta_data'):
+            self.meta_data = []
+        
         
     @classmethod
     def all(cls):
@@ -541,6 +551,10 @@ class Customer(CheddarObject):
         # build the list of arguments
         kwargs = self._build_kwargs()
         
+        if self.meta_data:
+            for datum in self.meta_data:
+                kwargs['metaData[%s]' % datum.name] = datum.value
+        
         # if this is a new item, then CheddarGetter requires me
         # to send subscription data as well
         if self.is_new():
@@ -549,7 +563,7 @@ class Customer(CheddarObject):
             
             # if credit card information is available in the subscription,
             # send it as well
-            cc_info = ['cc_first_name', 'cc_last_name', 'cc_number', 'cc_expiration', 'cc_card_code', 'cc_zip']
+            cc_info = ['cc_first_name', 'cc_last_name', 'cc_number', 'cc_expiration', 'cc_card_code', 'cc_zip', 'cc_address']
             for key in cc_info:
                 if key in self.subscription:
                     kwargs['subscription[%s]' % key] = getattr(self.subscription, key)
@@ -596,6 +610,7 @@ class Customer(CheddarObject):
         
         
     def add_charge(self, charge_code, item_code, amount = 0.0, quantity = 1, description = None):
+        """Increment item quantity for additional charges."""
         # set up the kwargs that CheddarGetter expects
         kwargs = {
             'item_code': item_code,
@@ -608,6 +623,31 @@ class Customer(CheddarObject):
         
         # send the request to CheddarGetter
         xml = CheddarGetter.request('/customers/add-charge/', product_code = self._product_code, code = self.code, **kwargs)
+    
+    def get_meta(self, name, default=None):
+        """Get a meta data value."""
+        if not self.meta_data: return default
+        
+        for datum in self.meta_data:
+            if datum.name == name:
+                return datum.value
+        
+        return default
+    
+    def set_meta(self, name, value):
+        """Set a meta data value. To delete a meta data value, set it to an
+        empty string.
+        """
+        if not self.meta_data:
+            self.meta_data = [Metadatum(name=name, value=value)]
+            return
+        
+        for datum in self.meta_data:
+            if datum.name == name:
+                datum.value = value
+                break
+        else:
+            self.meta_data.append(Metadatum(name=name, value=value))
         
     
 class Subscription(CheddarObject):
@@ -829,6 +869,9 @@ class Charge(CheddarObject):
 
 class Transaction(CheddarObject):
     """An object representing a CheddarGetter transaction."""
+
+class Metadatum(CheddarObject):
+    """An object for holding customer metadata"""
 
 # if we are using Django, and if the appropriate settings
 # are already set in Django, just import them automatically
