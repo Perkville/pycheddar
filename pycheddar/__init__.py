@@ -31,6 +31,9 @@ class CheddarGetter:
         # define the product code in the class
         cls._product_code = product_code
 
+    @classmethod
+    def set_timeout(cls, timeout):
+        cls._http.timeout = timeout
 
     @classmethod
     def request(cls, path, code = None, item_code = None, product_code = None, pass_product_code = True, **kwargs):
