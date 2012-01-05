@@ -106,7 +106,7 @@ class CheddarGetter:
         try:
             content = ElementTree.fromstring(content)
         except:
-            raise UnexpectedResponse, "The server sent back something that wasn't valid XML."
+            raise UnexpectedResponse, "The server sent back something that wasn't valid XML.\nRequest: " + str(request) + "\nContent: " + str(content)
 
         # raise appropriate exceptions if there is an error
         # of any kind
