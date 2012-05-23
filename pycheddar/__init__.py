@@ -577,6 +577,9 @@ class Customer(CheddarObject):
             # first, get the plan code
             kwargs['subscription[plan_code]'] = self.subscription.plan.code
 
+            if hasattr(self.subscription, 'coupon_code'):
+                kwargs['subscription[coupon_code]'] = self.subscription.coupon_code
+
             # if credit card information is available in the subscription,
             # send it as well
             cc_info = ['cc_first_name', 'cc_last_name', 'cc_number', 'cc_expiration', 'cc_card_code', 'cc_zip', 'cc_address']
