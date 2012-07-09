@@ -492,7 +492,11 @@ class Promotion(CheddarObject):
 
         # return a plan object
         for promotion_xml in xml.getiterator(tag = 'promotion'):
-            return Promotion.from_xml(promotion_xml)
+            for coupon in promotion_xml.find('coupons').getchildren():
+                if code.upper() == coupon.attrib['code'].upper():
+                    return Promotion.from_xml(promotion_xml)
+        else:
+            raise ValueError, 'Promotion not found.'
 
     def save(self):
         """Saving of promotions through the API is not yet implemented
