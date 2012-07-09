@@ -461,6 +461,52 @@ class Plan(CheddarObject):
         raise ValueError, 'Item not found.'
 
 
+class Promotion(CheddarObject):
+    """An object representing a CheddarGetter promotion."""
+
+    @classmethod
+    def all(cls):
+        """Get all pricing plans in the product"""
+
+        # retrieve the plans from CheddarGetter
+        try:
+            promotions = []
+            xml = CheddarGetter.request('/promotions/get/')
+
+            # make a list of Plan objects and return it
+            for promotion_xml in xml.getiterator(tag = 'promotion'):
+                promotions.append(Promotion.from_xml(promotion_xml))
+
+            return promotions
+
+        except NotFound:
+            return []
+
+
+    @classmethod
+    def get(cls, code):
+        """Get a single pricing plan"""
+
+        # retrieve the plan from CheddarGetter
+        xml = CheddarGetter.request('/promotions/get/', code = code)
+
+        # return a plan object
+        for promotion_xml in xml.getiterator(tag = 'promotion'):
+            return Promotion.from_xml(promotion_xml)
+
+    def save(self):
+        """Saving of promotions through the API is not yet implemented
+        in CheddarGetter."""
+
+        return NotImplemented
+
+
+    def delete(self):
+        """Delete the promotion through the API is not yet implemented."""
+
+        return NotImplemented
+
+
 class Customer(CheddarObject):
     """An object representing a CheddarGetter customer."""
 
@@ -882,12 +928,17 @@ class Item(CheddarObject):
 class Invoice(CheddarObject):
     """An object representing a CheddarGetter invoice."""
 
-
 class Charge(CheddarObject):
     """An object representing a CheddarGetter charge."""
 
 class Transaction(CheddarObject):
     """An object representing a CheddarGetter transaction."""
+
+class Coupon(CheddarObject):
+    """An object representing a CheddarGetter coupon."""
+
+class Incentive(CheddarObject):
+    """An object representing a CheddarGetter incentive."""
 
 class Metadatum(CheddarObject):
     """An object for holding customer metadata"""
