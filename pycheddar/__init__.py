@@ -1,39 +1,24 @@
+# vim: set fileencoding=utf-8 :
+
 import copy
 import datetime
-import httplib2
 import re
+import requests
 import sys
 from exceptions import *
 from utils import *
-from xml.etree import ElementTree
+from xml.etree.ElementTree import Element, SubElement, fromstring
 from urllib import urlencode
 
-VERSION = '0.9.3'
+VERSION = '0.9.5'
 
 class CheddarGetter:
     """Class designed to handle all interaction with the CheddarGetter API."""
 
     _server = 'https://cheddargetter.com'
-    _http = httplib2.Http()
-    _product_code = None
-
-
-    @classmethod
-    def auth(cls, username, password):
-        """Define the settings used to connect to CheddarGetter."""
-
-        # add the credentials to the HTTP connection
-        cls._http.add_credentials(username, password)
-
-
-    @classmethod
-    def set_product_code(cls, product_code):
-        # define the product code in the class
-        cls._product_code = product_code
-
-    @classmethod
-    def set_timeout(cls, timeout):
-        cls._http.timeout = timeout
+    credentials = None
+    product_code = None
+    timeout = 10.0
 
     @classmethod
     def request(cls, path, code = None, item_code = None, product_code = None, pass_product_code = True, **kwargs):
@@ -64,7 +49,7 @@ class CheddarGetter:
                 if add_to_url is True:
                     url += '/id/' + code
                 else:
-                    raise ValueError, 'Cannot send an ID for an object creation request.'
+                    raise ValueError('Cannot send an ID for an object creation request.')
             else:
                 if add_to_url is True:
                     url += '/code/' + code
@@ -89,45 +74,52 @@ class CheddarGetter:
         if pass_product_code is True:
             # if the product code is None, use the one assigned to the class generically
             if product_code is None:
-                product_code = cls._product_code
+                product_code = cls.product_code
 
             # sanity check: is the product code set?
             if not product_code:
-                raise AttributeError, 'You must set a CheddarGetter product code. Use CheddarGetter.set_product_code(product_code).'
+                raise AttributeError('You must set CheddarGetter.product_code')
 
             url += '/productCode/' + product_code + '/'
 
-        # create the curl command
-        request, content = cls._http.request(url, method = 'POST', body = urlencode(kwargs), headers = {
-            'content-type': 'application/x-www-form-urlencoded'
-        })
-
-        # parse the XML
+        # Attempt to handle every possible exception under the sun...
         try:
-            content = ElementTree.fromstring(content)
+            response = requests.post(url,
+                                     auth=cls.credentials,
+                                     data=kwargs,
+                                     timeout=cls.timeout)
+            response.raise_for_status()
+        except requests.exceptions.HTTPError:
+            try:
+                error_msg = fromstring(response.text).text
+            except:
+                error_msg = ''
+
+            exception_map = {
+                400: BadRequest,
+                401: AuthorizationRequired,
+                403: Forbidden,
+                404: NotFound,
+                412: BadRequest,
+                422: GatewayFailure,
+                502: GatewayConnectionError}
+
+            raise exception_map.get(response.status_code, UnexpectedResponse)(error_msg, response=response)
+
+        except requests.exceptions.Timeout:
+            raise Timeout(u'Waited {0} seconds'.format(self.timeout))
+
+        except requests.exceptions.ConnectionError:
+            raise ConnectionError()
+
+        try:
+            content = fromstring(response.text)
         except:
-            raise UnexpectedResponse, "The server sent back something that wasn't valid XML.\nRequest: " + str(request) + "\nContent: " + str(content)
+            raise UnexpectedResponse("The server sent back something that wasn't valid XML.", response=response)
 
-        # raise appropriate exceptions if there is an error
-        # of any kind
-        status = int(request['status'])
-        if status >= 400 or content.tag == 'error':
-            if status == 404:
-                raise NotFound, content.text
-            elif status == 401:
-                raise AuthorizationRequired, content.text
-            elif status == 400 or status == 412:  # CheddarGetter uses 400 and 412 roughly interchangably
-                raise BadRequest, content.text
-            elif status == 403:
-                raise Forbidden, content.text
-            elif status == 422:
-                raise GatewayFailure, content.text
-            elif status == 502:
-                raise GatewayConnectionError, content.text
-            else:
-                raise UnexpectedResponse, content.text
+        if content.tag == 'error':
+            raise UnexpectedResponse(content.text)
 
-        # return the processed content from CheddarGetter
         return content
 
 
@@ -135,11 +127,10 @@ class CheddarObject(object):
     """A object that can represent most objects that come down
     from CheddarGetter."""
 
-
     def __init__(self, parent = None, **kwargs):
         """Instantiate the object."""
 
-        self._product_code = CheddarGetter._product_code
+        self._product_code = CheddarGetter.product_code
         self._data = {}
         self._clean_data = {}
         self._id = None
@@ -153,9 +144,8 @@ class CheddarObject(object):
 
         # iterate over the keyword arguments provided
         # and set them to the object
-        for i in kwargs:
-            setattr(self, i, kwargs[i])
-
+        for key, val in kwargs.iteritems():
+            setattr(self, key, val)
 
     def __setattr__(self, key, value):
         """Set an arbitrary attribute on this object."""
@@ -169,10 +159,10 @@ class CheddarObject(object):
             if self._id is None:
                 self._code = value
             else:
-                raise AttributeError, 'Once an item has been saved to CheddarGetter, the code is immutable.'
+                raise AttributeError('Once an item has been saved to CheddarGetter, the code is immutable.')
         elif key == 'id':
             # id can only be modified if it is not set
-            raise AttributeError, 'The CheddarGetter ID is immutable.'
+            raise AttributeError('The CheddarGetter ID is immutable.')
         elif isinstance(value, CheddarObject) or isinstance(value, list):
             # if the value is a CheddarObject or a list, then it doesn't belong
             # as part of the data dictionary, but rather as a regular
@@ -182,7 +172,6 @@ class CheddarObject(object):
             # in normal situations, write this item to the
             # self._data dictionary (using underscores, always)
             self._data[to_underscores(key)] = value
-
 
     def __getattr__(self, key):
         """Return an arbitrary attribute on this object."""
@@ -204,25 +193,21 @@ class CheddarObject(object):
         if key in self._data:
             return self._data[to_underscores(key)]
 
-        raise AttributeError, 'Key "%s" does not exist.' % key
-
+        raise AttributeError(u'Key "{0}" does not exist.'.format(key))
 
     def __eq__(self, other):
         """Return True if these objects have equal _id properties, False otherwise."""
 
-        if self._id == other._id and self._id is not None:
-            return True
-        return False
-
+        return (self._id == other._id and self._id is not None)
 
     def __ne__(self, other):
         """Return the negation of self.__eq__."""
 
         return not self.__eq__(other)
 
-
     def __contains__(self, key):
         """Return whether or not the key exists in self."""
+
         # special case: id
         if key == 'id' or key == '_id':
             return self._id is not None
@@ -235,18 +220,17 @@ class CheddarObject(object):
         # self._data, consider it to exist
         return key in self._data
 
-
     def __iter__(self):
         """Iterate over the items in this object.
         Fundamentally identical to self.iteritems()."""
-        return self.iteritems()
 
+        return self.iteritems()
 
     def is_new(self):
         """Return True if this represents an item not yet initially
         saved in CheddarGetter, False otherwise."""
-        return not 'id' in self
 
+        return not 'id' in self
 
     @classmethod
     def from_xml(cls, xml, **kwargs):
@@ -266,16 +250,15 @@ class CheddarObject(object):
         parent = kwargs.pop('parent', None)
 
         # I don't recognize any other kwargs
-        if len(kwargs) > 0:
-            raise KeyError, 'Unrecognized keyword argument: %s' % kwargs.keys()[0]
+        if kwargs:
+            raise KeyError(u'Unrecognized keyword argument(s): {0}'.format(u', '.join(kwargs.keys())))
 
         # create the new object and load in the data
-        new = cls(parent = parent, **kwargs)
+        new = cls(parent=parent)
         new._load_data_from_xml(xml, clean)
 
         # done -- return the new object
         return new
-
 
     def _load_data_from_xml(self, xml, clean = True):
         """Load information for this object based on XML retrieved
@@ -287,8 +270,10 @@ class CheddarObject(object):
         clean = False.
 
         This method should be considered opaque."""
+
         self._id = xml.get('id')
         self._code = xml.get('code')
+
         # denote relationships where there will only
         # be one child object, rather than an arbitrary set
         singles = (
@@ -301,39 +286,38 @@ class CheddarObject(object):
             key = to_underscores(child.tag)
             # is this an element with children? if so, it's an object
             # relationship, not just an attribute
-            if len(child.getchildren()):
-                # is this a single-esque relationship, as opposed to one
-                # where the object should contain a list?
+            if child.getchildren():
                 if (xml.tag, child.tag) in singles:
+                    # is this a single-esque relationship, as opposed to one
+                    # where the object should contain a list?
                     single_xml = child.getchildren()[0]
                     class_name = single_xml.tag.capitalize()
 
                     if hasattr(sys.modules[__name__], class_name):
                         klass = getattr(sys.modules[__name__], class_name)
-                        setattr(self, single_xml.tag, klass.from_xml(single_xml, parent = self))
+                        setattr(self, single_xml.tag, klass.from_xml(single_xml, parent=self))
 
                         # denote a clean version as well
-                        setattr(self, '_clean_%s' % single_xml.tag, getattr(self, single_xml.tag))
+                        setattr(self, '_clean_{0}'.format(single_xml.tag), getattr(self, single_xml.tag))
 
-                    continue
+                else:
+                    # okay, it's not a single relationship -- follow my normal
+                    # process for a many to many
+                    setattr(self, key, [])
 
-                # okay, it's not a single relationship -- follow my normal
-                # process for a many to many
-                setattr(self, key, [])
+                    for indiv_xml in child.getchildren():
+                        # get the class that this item is
+                        try:
+                            klass = getattr(sys.modules[__name__], indiv_xml.tag.capitalize())
 
-                for indiv_xml in child.getchildren():
-                    # get the class that this item is
-                    try:
-                        klass = getattr(sys.modules[__name__], indiv_xml.tag.capitalize())
+                            # the XML underneath here constitutes the necessary
+                            # XML to generate that object; call its XML function
+                            getattr(self, key).append(klass.from_xml(indiv_xml, parent=self))
+                        except AttributeError:
+                            break
 
-                        # the XML underneath here constitutes the necessary
-                        # XML to generate that object; call its XML function
-                        getattr(self, key).append(klass.from_xml(indiv_xml, parent = self))
-                    except AttributeError:
-                        break
-
-                    # set the clean version
-                    setattr(self, '_clean_' + key, getattr(self, key))
+                        # set the clean version
+                        setattr(self, '_clean_' + key, getattr(self, key))
 
                 # done; move to the next child
                 continue
@@ -360,74 +344,71 @@ class CheddarObject(object):
             if clean is True:
                 self._clean_data[key] = value
 
-
     def _build_kwargs(self):
         """Build the list of keyword arguments based on all items
         modified in the current self._data dictionary."""
 
         kwargs = {}
-        for item in self.iteritems():
+        for key, val in self.iteritems():
             # if this item is a CheddarObject, then it'll be handled elsewhere
-            if isinstance(item[1], CheddarObject):
+            if isinstance(val, CheddarObject):
                 continue
 
             # if this item is dirty, include it in the list of material to send
-            if item[0] not in self._clean_data or item[1] != self._clean_data[item[0]]:
-                kwargs[item[0]] = item[1]
+            if not (key in self._clean_data and self._clean_data[key] == val):
+                kwargs[key] = val
 
         return kwargs
-
 
     def _is_clean(self):
         """Return True if this object has not been modified, False otherwise."""
 
-        if len(self._build_kwargs()) == 0:
-            return True
+        return len(self._build_kwargs()) == 0
 
-        return False
+    def save(self):
+        """Assume save methods are not implemented if not overloaded."""
+
+        raise NotImplemented
+
+    def delete(self):
+        """Assume delete methods are not implemented if not overloaded."""
+
+        raise NotImplemented
 
 
-class Plan(CheddarObject):
-    """An object representing a CheddarGetter pricing plan."""
-
+class TopCheddarObject(CheddarObject):
+    """A CheddarGetter object which is available directly for query."""
 
     @classmethod
-    def all(cls):
-        """Get all pricing plans in the product"""
+    def fetch(cls, *args, **kwargs):
+        """Generic helper for fetching objects from CheddarGetter."""
 
-        # retrieve the plans from CheddarGetter
+        method = kwargs.pop('method', 'get')
+
         try:
-            plans = []
-            xml = CheddarGetter.request('/plans/get/')
-
-            # make a list of Plan objects and return it
-            for plan_xml in xml.getiterator(tag = 'plan'):
-                plans.append(Plan.from_xml(plan_xml))
-
-            return plans
-
+            xml = CheddarGetter.request('/{0}s/{1}/'.format(cls._obj, method), **kwargs)
+            return [cls.from_xml(obj_xml) for obj_xml in xml.getiterator(tag=cls._obj)]
         except NotFound:
             return []
 
+    @classmethod
+    def all(cls):
+        """Get all objects of this type from the product."""
+
+        return cls.fetch()
 
     @classmethod
     def get(cls, code):
-        """Get a single pricing plan"""
+        """Get a single object of this type."""
 
-        # retrieve the plan from CheddarGetter
-        xml = CheddarGetter.request('/plans/get/', code = code)
-
-        # return a plan object
-        for plan_xml in xml.getiterator(tag = 'plan'):
-            return Plan.from_xml(plan_xml)
+        plan = cls.fetch(code=code)
+        return None if not plan else plan[0]
 
 
-    def save(self):
-        """Saving of plans through the API is not yet implemented
-        in CheddarGetter."""
+class Plan(TopCheddarObject):
+    """An object representing a CheddarGetter pricing plan."""
 
-        return NotImplemented
-
+    _obj = 'plan'
 
     def delete(self):
         """Delete the pricing plan in CheddarGetter."""
@@ -435,10 +416,9 @@ class Plan(CheddarObject):
         # send the deletion request to CheddarGetter
         # note: CheddarGetter returns no response -- this is expected here
         try:
-            CheddarGetter.request('/plans/delete/', code = self._code, product_code = self._product_code)
+            CheddarGetter.request('/plans/delete/', code=self._code)
         except UnexpectedResponse:
             pass
-
 
     def is_free(self):
         """Return True if CheddarGetter considers this plan to be free,
@@ -446,104 +426,50 @@ class Plan(CheddarObject):
 
         # allow a small tolerance due to the unreliability of floating
         # point math in most languages (including Python)
+
+        # TODO: Use Decimal objects for monetary values
         total = self.setup_charge_amount + self.recurring_charge_amount
         return total < 0.000001 and total > -0.000001
-
 
     def get_item(self, item_code):
         """Retrieve an item by item code. If the item does not exist,
         raise ValueError."""
 
+        # TODO: it would be nice if plan items were fetchable directly by code
         for item in self.items:
             if item.code == item_code:
                 return item
 
-        raise ValueError, 'Item not found.'
+        raise ValueError('Item not found.')
 
 
-class Promotion(CheddarObject):
+class Promotion(TopCheddarObject):
     """An object representing a CheddarGetter promotion."""
 
-    @classmethod
-    def all(cls):
-        """Get all pricing plans in the product"""
-
-        # retrieve the plans from CheddarGetter
-        try:
-            promotions = []
-            xml = CheddarGetter.request('/promotions/get/')
-
-            # make a list of Plan objects and return it
-            for promotion_xml in xml.getiterator(tag = 'promotion'):
-                promotions.append(Promotion.from_xml(promotion_xml))
-
-            return promotions
-
-        except NotFound:
-            return []
+    _obj = 'promotion'
 
 
-    @classmethod
-    def get(cls, code):
-        """Get a single pricing plan"""
-
-        # retrieve the plan from CheddarGetter
-        xml = CheddarGetter.request('/promotions/get/', code = code)
-
-        # return a plan object
-        for promotion_xml in xml.getiterator(tag = 'promotion'):
-            for coupon in promotion_xml.find('coupons').getchildren():
-                if code.upper() == coupon.attrib['code'].upper():
-                    return Promotion.from_xml(promotion_xml)
-        else:
-            raise ValueError, 'Promotion not found.'
-
-    def save(self):
-        """Saving of promotions through the API is not yet implemented
-        in CheddarGetter."""
-
-        return NotImplemented
-
-
-    def delete(self):
-        """Delete the promotion through the API is not yet implemented."""
-
-        return NotImplemented
-
-
-class Customer(CheddarObject):
+class Customer(TopCheddarObject):
     """An object representing a CheddarGetter customer."""
+
+    _obj = 'customer'
 
 
     def __init__(self, **kwargs):
-        self.subscription = Subscription(parent = self)
+        self.subscription = Subscription(parent=self)
         super(Customer, self).__init__(**kwargs)
 
         if not hasattr(self, 'meta_data'):
             self.meta_data = []
 
-
     @classmethod
-    def all(cls):
-        """Retrieve all customers in CheddarGetter.
-        Functionally identical to Customer.search() called with
-        no arguments."""
+    def list(cls, *args, **kwargs):
+        """Retrieve all customers in CheddarGetter, allowing filters.
+        Uses the more efficient customers/list/ method which is faster,
+        but returns less information."""
 
-        return Customer.search()
-
-    @classmethod
-    def list(cls):
-        """Retrieve all customers in CheddarGetter.
-        Uses the more efficient /customers/list call"""
-
-        try:
-            customers = []
-            xml = CheddarGetter.request('/customers/list/')
-            for customer_xml in xml.getiterator(tag='customer'):
-                customers.append(Customer.from_xml(customer_xml))
-            return customers
-        except NotFound:
-            return []
+        kwargs['method'] = 'list'
+        return cls.fetch(**kwargs)
 
     @classmethod
     def search(cls, **kwargs):
@@ -553,38 +479,7 @@ class Customer(CheddarObject):
         To retrieve all customers, use Customer.all().
         To retrieve a single customer by ID or code, use Customer.get()."""
 
-        # retreive the set of customers
-        try:
-            customers = []
-            xml = CheddarGetter.request('/customers/get/', **kwargs)
-            for customer_xml in xml.getiterator(tag='customer'):
-                customers.append(Customer.from_xml(customer_xml))
-
-            return customers
-
-        except NotFound:
-            return []
-
-
-    @classmethod
-    def get(cls, code):
-        """Get a specific customer by the given customer code.
-
-        Raises NotFound if the customer code does not exist
-        in CheddarGetter."""
-
-        #from django.conf import settings
-        #cache_string = 'cg_{0}_customer_{1}'.format(settings.CHEDDARGETTER_PRODUCT_CODE, code)
-        #cached_customer = cache.get(cache_string)
-        #if cached_customer is not None:
-        #    return pickle.loads(cached_customer)
-        #else:
-        xml = CheddarGetter.request('/customers/get/', code=code)
-        for customer_xml in xml.getiterator(tag='customer'):
-            customer = Customer.from_xml(customer_xml)
-            #cache.set(cache_string, pickle.dumps(customer), 3600)
-            return customer
-
+        return cls.fetch(**kwargs)
 
     def validate(self):
         """Verify that this is a well-formed Customer object.
@@ -594,19 +489,17 @@ class Customer(CheddarObject):
 
         # make sure this object has a code
         if not self._code:
-            raise ValidationError, 'No code has been set.'
+            raise ValidationError('No code has been set.')
 
         # the subscription object must also validate
         self.subscription.validate()
 
         # the customer object must have all required keys
-        required_keys = ['first_name', 'last_name', 'email']
-        for i in required_keys:
+        for i in ('first_name', 'last_name', 'email'):
             if i not in self:
-                raise ValidationError, 'Missing required key: "%s"' % i
+                raise ValidationError('Missing required key: "{0}"'.format(i))
 
         return True
-
 
     def save(self):
         """Save this customer to CheddarGetter"""
@@ -619,7 +512,7 @@ class Customer(CheddarObject):
 
         if self.meta_data:
             for datum in self.meta_data:
-                kwargs['metaData[%s]' % datum.name] = datum.value
+                kwargs['metaData[{0}]'.format(datum.name)] = datum.value
 
         # if this is a new item, then CheddarGetter requires me
         # to send subscription data as well
@@ -632,54 +525,57 @@ class Customer(CheddarObject):
 
             # if credit card information is available in the subscription,
             # send it as well
-            cc_info = ['cc_first_name', 'cc_last_name', 'cc_number', 'cc_expiration', 'cc_card_code', 'cc_zip', 'cc_address']
+            cc_info = ['cc_first_name', 'cc_last_name', 'cc_number',
+                       'cc_expiration', 'cc_card_code', 'cc_zip', 'cc_address']
             for key in cc_info:
                 if key in self.subscription:
-                    kwargs['subscription[%s]' % key] = getattr(self.subscription, key)
+                    kwargs['subscription[{0}]'.format(key)] = getattr(self.subscription, key)
 
-            xml = CheddarGetter.request('/customers/new/', product_code = self._product_code, code = self._code, **kwargs)
+            xml = CheddarGetter.request('/customers/new/', code=self._code, **kwargs)
         else:
-            # okay, this isn't new -- send the update request
-            xml = CheddarGetter.request('/customers/edit/', product_code = self._product_code, code = self._code, **kwargs)
-
+            # okay, this isn't new
             # if the subscription has been altered, save it too
-            # (this seems like expected behavior)
             if not self.subscription._is_clean():
-                self.subscription.save()
+                sub_kwargs = self.subscription._build_kwargs()
+                for key, val in sub_kwargs:
+                    kwargs['subscription[{0}]'.format(key)] = val
+
+            # send the update request
+            xml = CheddarGetter.request('/customers/edit/', code=self._code, **kwargs)
 
         # either way, I should get a well-formed customer XML response
         # that can now be loaded into this object
-        #from django.conf import settings
         for customer_xml in xml.getiterator(tag='customer'):
             self._load_data_from_xml(customer_xml)
-            #cache.set('cg_{0}_customer_{1}'.format(settings.CHEDDARGETTER_PRODUCT_CODE, code), pickle.dumps(Customer.from_xml(customer_xml)), 3600)
             break
 
         return self
-
 
     def delete(self):
         """Delete this customer from CheddarGetter."""
 
         # CheddarGetter does not return a response to deletion
         # requests in the success case
-        xml = CheddarGetter.request('/customers/delete/', product_code = self._product_code, code = self._code)
-
+        try:
+            xml = CheddarGetter.request('/customers/delete/', code=self._code)
+        except UnexpectedResponse:
+            pass
 
     def get_item(self, item_code):
-        """Retrieve an item by item code. If the item does not exist,
+        """Retrieve a subscription item by item code. If the item does not exist,
         raise ValueError."""
 
+        # TODO: it would be nice if subscription items were fetchable directly by code
         for item in self.subscription.items:
             if item.code == item_code:
                 item.customer = self
                 return item
 
-        raise ValueError, 'Item not found.'
+        raise ValueError(u'Item not found with code "{0}".'.format(item_code))
 
-
-    def add_charge(self, charge_code, item_code, amount = 0.0, quantity = 1, description = None):
+    def add_charge(self, charge_code, item_code, amount=0.0, quantity=1, description=None):
         """Increment item quantity for additional charges."""
+
         # set up the kwargs that CheddarGetter expects
         kwargs = {
             'item_code': item_code,
@@ -687,14 +583,16 @@ class Customer(CheddarObject):
             'each_amount': '%.2f' % float(amount),
             'quantity': quantity,
         }
+
         if description is not None:
             kwargs['description'] = description
 
         # send the request to CheddarGetter
-        xml = CheddarGetter.request('/customers/add-charge/', product_code = self._product_code, code = self.code, **kwargs)
+        xml = CheddarGetter.request('/customers/add-charge/', code=self.code, **kwargs)
 
     def get_meta(self, name, default=None):
         """Get a meta data value."""
+
         if not self.meta_data: return default
 
         for datum in self.meta_data:
@@ -707,6 +605,7 @@ class Customer(CheddarObject):
         """Set a meta data value. To delete a meta data value, set it to an
         empty string.
         """
+
         if not self.meta_data:
             self.meta_data = [Metadatum(name=name, value=value)]
             return
@@ -733,7 +632,6 @@ class Subscription(CheddarObject):
             return self.plan.code
 
         return super(Subscription, self).__getattr__(key)
-
 
     def __setattr__(self, key, value):
         # intercept the number and format it as digits only
@@ -769,7 +667,6 @@ class Subscription(CheddarObject):
         else:
             super(Subscription, self).__setattr__(key, value)
 
-
     def validate(self):
         """If the plan connected to this subscription is not free, then
         I need to have credit card information."""
@@ -790,7 +687,6 @@ class Subscription(CheddarObject):
         # no problems detected
         return True
 
-
     def _build_kwargs(self):
         """Build keyword arguments. Make sure plan code is included if appropriate."""
 
@@ -803,13 +699,12 @@ class Subscription(CheddarObject):
 
         return kwargs
 
-
     def save(self):
         """Save this object's properties to CheddarGetter."""
 
         # CheddarGetter does not create subscriptions directly;
         # if this is a new object, it needs to be saved through the Customer
-        if self.is_new() is True:
+        if self.is_new():
             self.customer.save()
             return self
 
@@ -820,7 +715,7 @@ class Subscription(CheddarObject):
 
         # this is an object being edited; update the subscription
         # by itself at CheddarGetter
-        xml = CheddarGetter.request('/customers/edit-subscription/', product_code = self._product_code, code = self.customer.code, **kwargs)
+        xml = CheddarGetter.request('/customers/edit-subscription/', code=self.customer.code, **kwargs)
 
         # either way, I should get a well-formed customer XML response
         # that can now be loaded into this object
@@ -830,15 +725,13 @@ class Subscription(CheddarObject):
 
         return self
 
-
     def delete(self):
         """Remove this subscription from CheddarGetter."""
 
-        kwargs = self._build_kwargs()
-
-        # this is straightforward: just run the cancellation
-        xml = CheddarGetter.request('/customers/cancel/', product_code = self._product_code, code = self.customer.code, **kwargs)
-
+        try:
+            CheddarGetter.request('/customers/cancel/', code=self.customer.code)
+        except UnexpectedResponse:
+            pass
 
     def cancel(self):
         """Alias to Subscription.delete() -- provided because CheddarGetter
@@ -846,7 +739,6 @@ class Subscription(CheddarObject):
 
         For consistency, Subscription.delete() is preferred."""
         return self.delete()
-
 
 
 class Item(CheddarObject):
@@ -864,7 +756,6 @@ class Item(CheddarObject):
         # regular case
         super(Item, self).__setattr__(key, value)
 
-
     def __getattr__(self, key):
         """Get an arbitrary attribute."""
 
@@ -876,7 +767,6 @@ class Item(CheddarObject):
         # regular case
         return super(Item, self).__getattr__(key)
 
-
     def validate(self):
         """Validate that this item may be saved. Return True on success or
         raise ValidationError otherwise."""
@@ -884,68 +774,71 @@ class Item(CheddarObject):
         # sanity check: I can only modify this item if it's directly attached
         # to the customer
         if not hasattr(self, 'customer'):
-            raise ValidationError, 'Items may only have their quantity altered if they are directly attached to a customer.'
+            raise ValidationError('Items may only have their quantity altered if they are directly attached to a customer.')
 
         # get what is being changed and run validation
         kwargs = self._build_kwargs()
         if len(kwargs) == 0:
-            return self
+            # Return False because there's nothing to save in this case
+            return False
+
         if 'quantity' not in kwargs or len(kwargs) > 1:
-            raise ValidationError, 'Only the quantity of an item can be changed through the CheddarGetter API.'
+            raise ValidationError('Only the quantity of an item can be changed through the CheddarGetter API.')
 
         return True
-
 
     def save(self):
         """Save this item back to CheddarGetter."""
 
         # sanity check: validate first!
-        self.validate()
+        if self.validate():
+            # okay, save to CheddarGetter
+            xml = CheddarGetter.request(
+                    '/customers/set-item-quantity/',
+                    item_code=self.code,
+                    code=self.customer.code,
+                    quantity=self.quantity)
+            self._load_data_from_xml(xml)
 
-        # okay, save to CheddarGetter
-        xml = CheddarGetter.request(
-                '/customers/set-item-quantity/',
-                product_code=self._product_code,
-                item_code=self.code,
-                code=self.customer.code,
-                quantity=self.quantity)
-
-        self._load_data_from_xml(xml)
         return self
 
     def add(self, quantity):
         """Increment item quantity back to CheddarGetter."""
         self.quantity += quantity
-        self.validate()
 
-        xml = CheddarGetter.request(
-                '/customers/add-item-quantity/',
-                product_code=self._product_code,
-                item_code=self.code,
-                code=self.customer.code,
-                quantity=quantity)
+        if self.validate():
+            xml = CheddarGetter.request(
+                    '/customers/add-item-quantity/',
+                    item_code=self.code,
+                    code=self.customer.code,
+                    quantity=quantity)
+            self._load_data_from_xml(xml)
 
-        self._load_data_from_xml(xml)
         return self
 
 
 class Invoice(CheddarObject):
     """An object representing a CheddarGetter invoice."""
 
+
 class Charge(CheddarObject):
     """An object representing a CheddarGetter charge."""
+
 
 class Transaction(CheddarObject):
     """An object representing a CheddarGetter transaction."""
 
+
 class Coupon(CheddarObject):
     """An object representing a CheddarGetter coupon."""
+
 
 class Incentive(CheddarObject):
     """An object representing a CheddarGetter incentive."""
 
+
 class Metadatum(CheddarObject):
-    """An object for holding customer metadata"""
+    """An object for holding customer metadata."""
 
 # if we are using Django, and if the appropriate settings
 # are already set in Django, just import them automatically
@@ -953,8 +846,8 @@ try:
     from django.conf import settings
 
     if hasattr(settings, 'CHEDDARGETTER_USERNAME') and hasattr(settings, 'CHEDDARGETTER_PASSWORD'):
-        CheddarGetter.auth(settings.CHEDDARGETTER_USERNAME, settings.CHEDDARGETTER_PASSWORD)
+        CheddarGetter.credentials = (settings.CHEDDARGETTER_USERNAME, settings.CHEDDARGETTER_PASSWORD)
     if hasattr(settings, 'CHEDDARGETTER_PRODUCT_CODE'):
-        CheddarGetter.set_product_code(settings.CHEDDARGETTER_PRODUCT_CODE)
+        CheddarGetter.product_code = settings.CHEDDARGETTER_PRODUCT_CODE
 except ImportError:
     pass
