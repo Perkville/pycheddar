@@ -404,8 +404,8 @@ class TopCheddarObject(CheddarObject):
     def get(cls, code):
         """Get a single object of this type."""
 
-        plan = cls.fetch(code=code)
-        return None if not plan else plan[0]
+        obj = cls.fetch(code=code)
+        return None if not obj else obj[0]
 
 
 class Plan(TopCheddarObject):
@@ -628,7 +628,6 @@ class Subscription(CheddarObject):
         self._clean_plan = self.plan = Plan()
         super(Subscription, self).__init__(**kwargs)
 
-
     def __getattr__(self, key):
         # plan_code is special; pull it from the Plan object
         if to_underscores(key) == 'plan_code':
@@ -842,6 +841,7 @@ class Incentive(CheddarObject):
 
 class Metadatum(CheddarObject):
     """An object for holding customer metadata."""
+
 
 # if we are using Django, and if the appropriate settings
 # are already set in Django, just import them automatically
