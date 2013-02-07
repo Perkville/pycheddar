@@ -52,8 +52,8 @@ Example Usage
 Set up your CheddarGetter login info:
 
     >>> from pycheddar import *
-    >>> CheddarGetter.auth('e-mail address', 'password')
-    >>> CheddarGetter.set_product_code('product code')
+    >>> CheddarGetter.credentials = ('e-mail address', 'password')
+    >>> CheddarGetter.product_code = 'product code'
 
 Get all customers (returns a list of Customer objects):
 
@@ -65,17 +65,17 @@ Get a customer that already exists, either by the ID or the code in CheddarGette
 
     >>> customer = Customer.get('4072cc12-5375-102d-86dc-40402145ee8b')
     >>> customer = Customer.get('MY_CODE')
-    
+
 Get customers based on arbitrary criteria:
 
     >>> customers = Customer.search(last_name = 'Smith')
-    
+
 Edit information about a customer:
 
     >>> customer = Customer.get('4072cc12-5375-102d-86dc-40402145ee8b')
     >>> customer.last_name = 'Jones'
     >>> customer.save()
-    
+
 Add a new customer:
 
     >>> # this works...
@@ -90,11 +90,11 @@ Add a new customer:
     >>> customer.email = 'john.smith@gmail.com'
     >>> customer.plan_code = 'FREE'
     >>> customer.save()
-    
+
 Get a customer's subscription information:
 
     >>> subscription = Customer.get('JOHN_SMITH').subscription
-    
+
 Edit a customer's subscription information:
 
     >>> subscription = Customer.get('JOHN_SMITH').subscription
@@ -105,7 +105,7 @@ Edit a customer's subscription information:
     >>> subscription.cc_zip = '77777'
     >>> subscription.cc_card_code = '000'
     >>> subscription.save()
-    
+
 Switch a customer to a new plan:
 
     >>> # lots of ways to do this...here's one:
@@ -119,12 +119,12 @@ Switch a customer to a new plan:
     >>> # or...
     >>> customer.plan_code = 'COMPREHENSIVE'
     >>> customer.save()
-    
+
 View the items included in a plan...
 
     >>> for item in plan.items:
     ...     print (item.code, item.quantity)
-    
+
 Set an item's quantity (if the item is attached to a customer):
 
     >>> item = customer.get_item("The Item's Code")
@@ -137,4 +137,4 @@ Set an item's quantity (if the item is attached to a customer):
     >>> item.quantity = 5
     >>> item.save()
     pycheddar.exceptions.ValidationError: Items may only have their quantity altered if they are directly attached to a customer.
-    
+
