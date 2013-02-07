@@ -7,7 +7,7 @@ import requests
 import sys
 from exceptions import *
 from utils import *
-from xml.etree.ElementTree import Element, SubElement, fromstring
+from xml.etree.ElementTree import fromstring
 from urllib import urlencode
 
 VERSION = '0.9.5'
@@ -88,7 +88,16 @@ class CheddarGetter:
                                      auth=cls.credentials,
                                      data=kwargs,
                                      timeout=cls.timeout)
+
+        except requests.exceptions.Timeout:
+            raise Timeout(u'Waited {0} seconds'.format(self.timeout))
+
+        except requests.exceptions.ConnectionError:
+            raise ConnectionError()
+
+        try:
             response.raise_for_status()
+
         except requests.exceptions.HTTPError:
             try:
                 error_msg = fromstring(response.text).text
@@ -105,12 +114,6 @@ class CheddarGetter:
                 502: GatewayConnectionError}
 
             raise exception_map.get(response.status_code, UnexpectedResponse)(error_msg, response=response)
-
-        except requests.exceptions.Timeout:
-            raise Timeout(u'Waited {0} seconds'.format(self.timeout))
-
-        except requests.exceptions.ConnectionError:
-            raise ConnectionError()
 
         try:
             content = fromstring(response.text)
