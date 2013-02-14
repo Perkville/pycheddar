@@ -116,7 +116,7 @@ class CheddarGetter:
             raise exception_map.get(response.status_code, UnexpectedResponse)(error_msg, response=response)
 
         try:
-            content = fromstring(response.text)
+            content = fromstring(unicode(response.text).encode('utf-8'))
         except:
             raise UnexpectedResponse("The server sent back something that wasn't valid XML.", response=response)
 
