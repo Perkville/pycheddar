@@ -113,12 +113,12 @@ class CheddarGetter:
                 422: GatewayFailure,
                 502: GatewayConnectionError}
 
-            raise exception_map.get(response.status_code, UnexpectedResponse)(error_msg, response=response)
+            raise exception_map.get(response.status_code, UnexpectedResponse)(error_msg)
 
         try:
             content = fromstring(unicode(response.text).encode('utf-8'))
         except:
-            raise UnexpectedResponse("The server sent back something that wasn't valid XML.", response=response)
+            raise UnexpectedResponse("The server sent back something that wasn't valid XML.")
 
         if content.tag == 'error':
             raise UnexpectedResponse(content.text)
@@ -540,7 +540,7 @@ class Customer(TopCheddarObject):
             # if the subscription has been altered, save it too
             if not self.subscription._is_clean():
                 sub_kwargs = self.subscription._build_kwargs()
-                for key, val in sub_kwargs:
+                for key, val in sub_kwargs.iteritems():
                     kwargs['subscription[{0}]'.format(key)] = val
 
             # send the update request
