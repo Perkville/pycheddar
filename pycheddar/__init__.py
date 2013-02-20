@@ -393,24 +393,23 @@ class TopCheddarObject(CheddarObject):
 
         method = kwargs.pop('method', 'get')
 
-        try:
-            xml = CheddarGetter.request('/{0}s/{1}/'.format(cls.__name__.lower(), method), **kwargs)
-            return [cls.from_xml(obj_xml) for obj_xml in xml.iter(tag=cls.__name__.lower())]
-        except NotFound:
-            return []
+        xml = CheddarGetter.request('/{0}s/{1}/'.format(cls.__name__.lower(), method), **kwargs)
+        return [cls.from_xml(obj_xml) for obj_xml in xml.iter(tag=cls.__name__.lower())]
 
     @classmethod
     def all(cls):
         """Get all objects of this type from the product."""
 
-        return cls.fetch()
+        try:
+            return cls.fetch()
+        except NotFound:
+            return []
 
     @classmethod
     def get(cls, code):
         """Get a single object of this type."""
 
-        obj = cls.fetch(code=code)
-        return None if not obj else obj[0]
+        return cls.fetch(code=code)[0]
 
 
 class Plan(TopCheddarObject):
@@ -467,7 +466,10 @@ class Customer(TopCheddarObject):
         but returns less information."""
 
         kwargs['method'] = 'list'
-        return cls.fetch(**kwargs)
+        try:
+            return cls.fetch(**kwargs)
+        except NotFound:
+            return []
 
     @classmethod
     def search(cls, **kwargs):
@@ -477,7 +479,10 @@ class Customer(TopCheddarObject):
         To retrieve all customers, use Customer.all().
         To retrieve a single customer by ID or code, use Customer.get()."""
 
-        return cls.fetch(**kwargs)
+        try:
+            return cls.fetch(**kwargs)
+        except NotFound:
+            return []
 
     def validate(self):
         """Verify that this is a well-formed Customer object.
