@@ -1,7 +1,11 @@
 # vim: set fileencoding=utf-8 :
 
+
 class MouseTrap(Exception):
-    pass
+    def __init__(self, *args, **kwargs):
+        self.response = kwargs.pop('response', None)
+        self.parent_exception = kwargs.pop('parent_exception', None)
+        super(MouseTrap, self).__init__(*args, **kwargs)
 
 
 class NotFound(MouseTrap):

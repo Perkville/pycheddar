@@ -87,20 +87,21 @@ class CheddarGetter:
             response = requests.post(url,
                                      auth=cls.credentials,
                                      data=kwargs,
-                                     timeout=cls.timeout)
+                                     timeout=cls.timeout,
+                                     stream=True)
 
-        except requests.exceptions.Timeout:
-            raise Timeout(u'Waited {0} seconds'.format(self.timeout))
+        except requests.exceptions.Timeout as e:
+            raise Timeout(u'Waited {0} seconds'.format(self.timeout), parent_exception=e)
 
-        except requests.exceptions.ConnectionError:
-            raise ConnectionError()
+        except requests.exceptions.ConnectionError as e:
+            raise ConnectionError(parent_exception=e)
 
         try:
             response.raise_for_status()
 
-        except requests.exceptions.HTTPError:
+        except requests.exceptions.HTTPError as e:
             try:
-                error_msg = fromstring(response.text).text
+                error_msg = fromstring(response.content).text
             except:
                 error_msg = ''
 
@@ -113,15 +114,19 @@ class CheddarGetter:
                 422: GatewayFailure,
                 502: GatewayConnectionError}
 
-            raise exception_map.get(response.status_code, UnexpectedResponse)(error_msg)
+            raise exception_map.get(response.status_code, UnexpectedResponse)(error_msg,
+                                                                              response=response,
+                                                                              parent_exception=e)
 
         try:
-            content = fromstring(unicode(response.text).encode('utf-8'))
-        except:
-            raise UnexpectedResponse("The server sent back something that wasn't valid XML.")
+            content = fromstring(response.content)
+        except Exception as e:
+            raise UnexpectedResponse("The server sent back something that wasn't valid XML.",
+                                     response=response,
+                                     parent_exception=e)
 
         if content.tag == 'error':
-            raise UnexpectedResponse(content.text)
+            raise UnexpectedResponse(content.text, response=response)
 
         return content
 
@@ -285,15 +290,15 @@ class CheddarObject(object):
             ('invoice', 'transactions'),
         )
 
-        for child in xml.getchildren():
+        for child in list(xml):
             key = to_underscores(child.tag)
             # is this an element with children? if so, it's an object
             # relationship, not just an attribute
-            if child.getchildren():
+            if list(child):
                 if (xml.tag, child.tag) in singles:
                     # is this a single-esque relationship, as opposed to one
                     # where the object should contain a list?
-                    single_xml = child.getchildren()[0]
+                    single_xml = list(child)[0]
                     class_name = single_xml.tag.capitalize()
 
                     if hasattr(sys.modules[__name__], class_name):
@@ -308,7 +313,7 @@ class CheddarObject(object):
                     # process for a many to many
                     setattr(self, key, [])
 
-                    for indiv_xml in child.getchildren():
+                    for indiv_xml in list(child):
                         # get the class that this item is
                         try:
                             klass = getattr(sys.modules[__name__], indiv_xml.tag.capitalize())
@@ -389,8 +394,8 @@ class TopCheddarObject(CheddarObject):
         method = kwargs.pop('method', 'get')
 
         try:
-            xml = CheddarGetter.request('/{0}s/{1}/'.format(cls._obj, method), **kwargs)
-            return [cls.from_xml(obj_xml) for obj_xml in xml.getiterator(tag=cls._obj)]
+            xml = CheddarGetter.request('/{0}s/{1}/'.format(cls.__name__.lower(), method), **kwargs)
+            return [cls.from_xml(obj_xml) for obj_xml in xml.iter(tag=cls.__name__.lower())]
         except NotFound:
             return []
 
@@ -410,8 +415,6 @@ class TopCheddarObject(CheddarObject):
 
 class Plan(TopCheddarObject):
     """An object representing a CheddarGetter pricing plan."""
-
-    _obj = 'plan'
 
     def delete(self):
         """Delete the pricing plan in CheddarGetter."""
@@ -443,19 +446,11 @@ class Plan(TopCheddarObject):
             if item.code == item_code:
                 return item
 
-        raise ValueError('Item not found.')
-
-
-class Promotion(TopCheddarObject):
-    """An object representing a CheddarGetter promotion."""
-
-    _obj = 'promotion'
+        raise ValueError('Item not found with code "{0}".'.format(item_code))
 
 
 class Customer(TopCheddarObject):
     """An object representing a CheddarGetter customer."""
-
-    _obj = 'customer'
 
 
     def __init__(self, **kwargs):
@@ -548,7 +543,7 @@ class Customer(TopCheddarObject):
 
         # either way, I should get a well-formed customer XML response
         # that can now be loaded into this object
-        for customer_xml in xml.getiterator(tag='customer'):
+        for customer_xml in xml.iter(tag='customer'):
             self._load_data_from_xml(customer_xml)
             break
 
@@ -721,7 +716,7 @@ class Subscription(CheddarObject):
 
         # either way, I should get a well-formed customer XML response
         # that can now be loaded into this object
-        for subscription_xml in xml.getiterator(tag='subscription'):
+        for subscription_xml in xml.iter(tag='subscription'):
             self._load_data_from_xml(subscription_xml)
             break
 
@@ -819,6 +814,10 @@ class Item(CheddarObject):
         return self
 
 
+class Promotion(TopCheddarObject):
+    """An object representing a CheddarGetter promotion."""
+
+
 class Invoice(CheddarObject):
     """An object representing a CheddarGetter invoice."""
 
@@ -829,14 +828,6 @@ class Charge(CheddarObject):
 
 class Transaction(CheddarObject):
     """An object representing a CheddarGetter transaction."""
-
-
-class Coupon(CheddarObject):
-    """An object representing a CheddarGetter coupon."""
-
-
-class Incentive(CheddarObject):
-    """An object representing a CheddarGetter incentive."""
 
 
 class Metadatum(CheddarObject):
