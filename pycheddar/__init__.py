@@ -823,20 +823,24 @@ class Promotion(TopCheddarObject):
     """An object representing a CheddarGetter promotion."""
 
 
-class Invoice(CheddarObject):
-    """An object representing a CheddarGetter invoice."""
-
-
 class Charge(CheddarObject):
     """An object representing a CheddarGetter charge."""
 
 
-class Transaction(CheddarObject):
-    """An object representing a CheddarGetter transaction."""
+class Coupon(CheddarObject):
+    """An object representing a CheddarGetter coupon."""
+
+
+class Invoice(CheddarObject):
+    """An object representing a CheddarGetter invoice."""
 
 
 class Metadatum(CheddarObject):
     """An object for holding customer metadata."""
+
+
+class Transaction(CheddarObject):
+    """An object representing a CheddarGetter transaction."""
 
 
 # if we are using Django, and if the appropriate settings
