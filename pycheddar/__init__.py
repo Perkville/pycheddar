@@ -831,6 +831,13 @@ class Coupon(CheddarObject):
     """An object representing a CheddarGetter coupon."""
 
 
+class Incentive(CheddarObject):
+    """
+    An object representing a CheddarGetter incentive.
+
+    Incentives are accessed via promotions on past invoices.
+    """
+
 class Invoice(CheddarObject):
     """An object representing a CheddarGetter invoice."""
 
