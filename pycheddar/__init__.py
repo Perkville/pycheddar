@@ -429,12 +429,7 @@ class Plan(TopCheddarObject):
         """Return True if CheddarGetter considers this plan to be free,
         False otherwise."""
 
-        # allow a small tolerance due to the unreliability of floating
-        # point math in most languages (including Python)
-
-        # TODO: Use Decimal objects for monetary values
-        total = self.setup_charge_amount + self.recurring_charge_amount
-        return total < 0.000001 and total > -0.000001
+        return bool(self._data['is_free'])
 
     def get_item(self, item_code):
         """Retrieve an item by item code. If the item does not exist,
