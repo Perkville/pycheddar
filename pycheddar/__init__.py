@@ -91,7 +91,7 @@ class CheddarGetter:
                                      stream=True)
 
         except requests.exceptions.Timeout as e:
-            raise Timeout(u'Waited {0} seconds'.format(self.timeout), parent_exception=e)
+            raise Timeout(u'Waited {0} seconds'.format(cls.timeout), parent_exception=e)
 
         except requests.exceptions.ConnectionError as e:
             raise ConnectionError(parent_exception=e)
@@ -285,15 +285,16 @@ class CheddarObject(object):
         # denote relationships where there will only
         # be one child object, rather than an arbitrary set
         singles = (
-            ('customer', 'subscriptions'),
+            ('customer', 'subscriptions'), # This is not true, a customer can have multiple (past) subscriptions
             ('subscription', 'plans'),
-            ('invoice', 'transactions'),
+            ('invoice', 'transactions'),   # I'm not sure what this relationship is
         )
 
         for child in list(xml):
             key = to_underscores(child.tag)
             # is this an element with children? if so, it's an object
             # relationship, not just an attribute
+            # TODO: This is not necessarily true for gatewayAccount element
             if list(child):
                 if (xml.tag, child.tag) in singles:
                     # is this a single-esque relationship, as opposed to one
