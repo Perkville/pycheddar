@@ -7,6 +7,17 @@ class MouseTrap(Exception):
         self.parent_exception = kwargs.pop('parent_exception', None)
         super(MouseTrap, self).__init__(*args, **kwargs)
 
+    def __unicode__(self):
+        if self.args:
+            return unicode(self.args[0])
+        elif self.parent_exception:
+            return unicode(self.parent_exception)
+        else:
+            return u''
+
+    def __str__(self):
+        return unicode(self).encode('utf-8')
+
 
 class NotFound(MouseTrap):
     pass
