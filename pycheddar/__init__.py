@@ -18,7 +18,7 @@ class CheddarGetter:
     _server = 'https://cheddargetter.com'
     credentials = None
     product_code = None
-    timeout = 10.0
+    timeout = 15.0
 
     @classmethod
     def request(cls, path, code = None, item_code = None, product_code = None, pass_product_code = True, **kwargs):
