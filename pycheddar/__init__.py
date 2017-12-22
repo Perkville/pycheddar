@@ -5,10 +5,10 @@ import datetime
 import re
 import requests
 import sys
-from exceptions import *
-from utils import *
+from .exceptions import *
+from .utils import *
 from xml.etree.ElementTree import fromstring
-from urllib import urlencode
+from urllib.parse import urlencode
 
 VERSION = '0.9.5'
 
@@ -91,7 +91,7 @@ class CheddarGetter:
                                      stream=True)
 
         except requests.exceptions.Timeout as e:
-            raise Timeout(u'Waited {0} seconds'.format(cls.timeout), parent_exception=e)
+            raise Timeout('Waited {0} seconds'.format(cls.timeout), parent_exception=e)
 
         except requests.exceptions.ConnectionError as e:
             raise ConnectionError(parent_exception=e)
@@ -152,7 +152,7 @@ class CheddarObject(object):
 
         # iterate over the keyword arguments provided
         # and set them to the object
-        for key, val in kwargs.iteritems():
+        for key, val in kwargs.items():
             setattr(self, key, val)
 
     def __setattr__(self, key, value):
@@ -201,7 +201,7 @@ class CheddarObject(object):
         if key in self._data:
             return self._data[to_underscores(key)]
 
-        raise AttributeError(u'Key "{0}" does not exist.'.format(key))
+        raise AttributeError('Key "{0}" does not exist.'.format(key))
 
     def __eq__(self, other):
         """Return True if these objects have equal _id properties, False otherwise."""
@@ -232,7 +232,7 @@ class CheddarObject(object):
         """Iterate over the items in this object.
         Fundamentally identical to self.iteritems()."""
 
-        return self.iteritems()
+        return iter(self.items())
 
     def is_new(self):
         """Return True if this represents an item not yet initially
@@ -259,7 +259,7 @@ class CheddarObject(object):
 
         # I don't recognize any other kwargs
         if kwargs:
-            raise KeyError(u'Unrecognized keyword argument(s): {0}'.format(u', '.join(kwargs.keys())))
+            raise KeyError('Unrecognized keyword argument(s): {0}'.format(', '.join(list(kwargs.keys()))))
 
         # create the new object and load in the data
         new = cls(parent=parent)
@@ -358,7 +358,7 @@ class CheddarObject(object):
         modified in the current self._data dictionary."""
 
         kwargs = {}
-        for key, val in self.iteritems():
+        for key, val in self.items():
             # if this item is a CheddarObject, then it'll be handled elsewhere
             if isinstance(val, CheddarObject):
                 continue
@@ -536,7 +536,7 @@ class Customer(TopCheddarObject):
             # if the subscription has been altered, save it too
             if not self.subscription._is_clean():
                 sub_kwargs = self.subscription._build_kwargs()
-                for key, val in sub_kwargs.iteritems():
+                for key, val in sub_kwargs.items():
                     kwargs['subscription[{0}]'.format(key)] = val
 
             # send the update request
@@ -570,7 +570,7 @@ class Customer(TopCheddarObject):
                 item.customer = self
                 return item
 
-        raise ValueError(u'Item not found with code "{0}".'.format(item_code))
+        raise ValueError('Item not found with code "{0}".'.format(item_code))
 
     def add_charge(self, charge_code, item_code, amount=0.0, quantity=1, description=None):
         """Increment item quantity for additional charges."""

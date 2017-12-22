@@ -9,14 +9,14 @@ class MouseTrap(Exception):
 
     def __unicode__(self):
         if self.args:
-            return unicode(self.args[0])
+            return str(self.args[0])
         elif self.parent_exception:
-            return unicode(self.parent_exception)
+            return str(self.parent_exception)
         else:
-            return u''
+            return ''
 
     def __str__(self):
-        return unicode(self).encode('utf-8')
+        return str(self).encode('utf-8')
 
 
 class NotFound(MouseTrap):
